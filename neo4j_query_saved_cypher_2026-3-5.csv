@@ -1,0 +1,165 @@
+name,description,query,id,parentId,isFolder
+Tabla costo calculado,,"MATCH ()-[r:CONECTA_A]->()
+SET r.costo_trafico = r.distancia * r.estado_trafico
+RETURN r.distancia AS Distancia, r.estado_trafico AS Trafico, r.costo_trafico AS Costo_Calculado;",0,,false
+tabla de Nodos y grafos original,,"CALL gds.graph.project(
+  'grafo_logistica',
+  ['Almacen', 'Interseccion', 'PuntoEntrega'],
+  {
+    CONECTA_A: {
+      orientation: 'UNDIRECTED',
+      properties: ['distancia', 'tiempo_estimado', 'costo_trafico']
+    }
+  }
+)
+YIELD graphName, nodeCount, relationshipCount;",1,,false
+tabla  distancia total y ruta optima,,"MATCH (origen:Almacen {id: 'A1'}), (destino:PuntoEntrega {id: 'P2'})
+CALL gds.shortestPath.dijkstra.stream('grafo_logistica', {
+    sourceNode: origen,
+    targetNode: destino,
+    relationshipWeightProperty: 'distancia'
+})
+YIELD index, sourceNode, targetNode, totalCost, nodeIds, costs, path
+RETURN
+    gds.util.asNode(sourceNode).nombre AS Origen,
+    gds.util.asNode(targetNode).nombre AS Destino,
+    totalCost AS Distancia_Total,
+    [nodeId IN nodeIds | gds.util.asNode(nodeId).nombre] AS Ruta_Optima;",2,,false
+tabla costotrafico total y ruta optima,,"MATCH (origen:Almacen {id: 'A1'}), (destino:PuntoEntrega {id: 'P2'})
+CALL gds.shortestPath.dijkstra.stream('grafo_logistica', {
+    sourceNode: origen,
+    targetNode: destino,
+    relationshipWeightProperty: 'costo_trafico'
+})
+YIELD index, sourceNode, targetNode, totalCost, nodeIds, costs, path
+RETURN
+    gds.util.asNode(sourceNode).nombre AS Origen,
+    gds.util.asNode(targetNode).nombre AS Destino,
+    totalCost AS Costo_Trafico_Total,
+    [nodeId IN nodeIds | gds.util.asNode(nodeId).nombre] AS Ruta_Optima_Trafico;",3,,false
+1. Le damos a todas las rutas una capacidad base de 30 toneladas,,"// 1. Le damos a todas las rutas una capacidad base de 30 toneladas
+MATCH ()-[r:CONECTA_A]->()
+SET r.capacidad_maxima = 30;
+
+// 2. Simulamos que la vía hacia San Félix (desde Cruce Castillito) solo soporta 15 toneladas
+WITH 1 AS dummy
+MATCH (i:Interseccion {id: 'I3'})-[r:CONECTA_A]->(p:PuntoEntrega {id: 'P2'})
+SET r.capacidad_maxima = 15;",4,,false
+"Agregación de nodos ",,"// 1. Buscamos nuestros nodos existentes para conectarlos
+MATCH (a1:Almacen {id: 'A1'})
+MATCH (i2:Interseccion {id: 'I2'})
+MATCH (p1:PuntoEntrega {id: 'P1'})
+MATCH (p2:PuntoEntrega {id: 'P2'})
+
+// 2. Creamos los nuevos nodos (Vehículos, Conductores, Pedidos y nuevas Calles)
+CREATE
+  (v1:Vehiculo {id: 'V1', placa: 'GUA-123', capacidad_toneladas: 10, tipo: 'Ligero'}),
+  (v2:Vehiculo {id: 'V2', placa: 'BOL-456', capacidad_toneladas: 25, tipo: 'Pesado'}),
+  (v3:Vehiculo {id: 'V3', placa: 'UNE-789', capacidad_toneladas: 15, tipo: 'Mediano'}),
+  
+  (c1:Conductor {id: 'C1', nombre: 'Alejandro González'}),
+  (c2:Conductor {id: 'C2', nombre: 'Juan García'}),
+  (c3:Conductor {id: 'C3', nombre: 'Roxana Moreno'}),
+  
+  (ped1:Pedido {id: 'PED-001', peso_toneladas: 8, prioridad: 'Alta'}),
+  (ped2:Pedido {id: 'PED-002', peso_toneladas: 20, prioridad: 'Media'}),
+  (ped3:Pedido {id: 'PED-003', peso_toneladas: 12, prioridad: 'Urgente'}),
+  
+  (i4:Interseccion {id: 'I4', nombre: 'Peaje Macagua'}),
+  (p3:PuntoEntrega {id: 'P3', nombre: 'Cliente UD-104'})
+
+// 3. Creamos las nuevas relaciones logísticas
+CREATE
+  (c1)-[:MANEJA]->(v1),
+  (c2)-[:MANEJA]->(v2),
+  (c3)-[:MANEJA]->(v3),
+  
+  (v1)-[:UBICADO_EN]->(a1),
+  (v2)-[:UBICADO_EN]->(a1),
+  (v3)-[:UBICADO_EN]->(a1),
+  
+  (v1)-[:LLEVA]->(ped1),
+  (v2)-[:LLEVA]->(ped2),
+  (v3)-[:LLEVA]->(ped3),
+  
+  (ped1)-[:ENTREGAR_EN]->(p1),
+  (ped2)-[:ENTREGAR_EN]->(p2),
+  (ped3)-[:ENTREGAR_EN]->(p3),
+  
+  // Conectamos las nuevas calles al mapa
+  (i2)-[:CONECTA_A {distancia: 5.0, tiempo_estimado: 12, estado_trafico: 0.3, capacidad_maxima: 30, costo_trafico: 1.5}]->(i4),
+  (i4)-[:CONECTA_A {distancia: 2.8, tiempo_estimado: 8, estado_trafico: 0.2, capacidad_maxima: 30, costo_trafico: 0.56}]->(p3);",5,,false
+Grafo completo,,"MATCH (n)-[r]->(m) RETURN n, r, m",6,,false
+Tabla consulta 1,,"// Rastreo de cargas pesadas usando WITH
+MATCH (c:Conductor)-[:MANEJA]->(v:Vehiculo)-[:LLEVA]->(ped:Pedido)-[:ENTREGAR_EN]->(destino:PuntoEntrega)
+WITH c.nombre AS Chofer, v.placa AS Placa, ped.peso_toneladas AS Carga, destino.nombre AS Cliente
+WHERE Carga > 10
+RETURN Chofer, Placa, Carga, Cliente
+ORDER BY Carga DESC;",7,,false
+Visual consulta 1,,"MATCH path = (c:Conductor)-[:MANEJA]->(v:Vehiculo)-[:LLEVA]->(ped:Pedido)-[:ENTREGAR_EN]->(destino:PuntoEntrega)
+WITH path, ped.peso_toneladas AS Carga
+WHERE Carga > 10
+RETURN path;",8,,false
+Tabla consulta 2,,"// Desglose de listas de pedidos usando UNWIND
+WITH ['PED-001', 'PED-002', 'PED-003'] AS lista_pedidos
+UNWIND lista_pedidos AS id_pedido
+MATCH (p:Pedido {id: id_pedido})<-[:LLEVA]-(v:Vehiculo)<-[:MANEJA]-(c:Conductor)
+RETURN id_pedido AS Codigo_Pedido, p.prioridad AS Prioridad, c.nombre AS Responsable, v.tipo AS Tipo_Camion
+ORDER BY Prioridad;",9,,false
+Visual consulta 2,,"WITH ['PED-001', 'PED-002', 'PED-003'] AS lista_pedidos
+UNWIND lista_pedidos AS id_pedido
+MATCH path = (p:Pedido {id: id_pedido})<-[:LLEVA]-(v:Vehiculo)<-[:MANEJA]-(c:Conductor)
+RETURN path;",10,,false
+Tabla consulta 3,,"//Filtrado de rutas seguras
+MATCH ruta = (origen:Almacen {id: 'A1'})-[conexiones:CONECTA_A*1..5]-(destino:PuntoEntrega {id: 'P3'})
+WITH ruta, conexiones, destino
+WHERE ALL(tramo IN conexiones WHERE tramo.capacidad_maxima >= 15)
+RETURN destino.nombre AS Destino, 
+       [n IN nodes(ruta) | n.nombre] AS Nodos_Recorridos,
+       reduce(costo_total = 0, c IN conexiones | costo_total + c.costo_trafico) AS Costo_Trafico_Ruta
+ORDER BY Costo_Trafico_Ruta ASC 
+LIMIT 1;",11,,false
+Visual consulta 3,,"MATCH ruta = (origen:Almacen {id: 'A1'})-[conexiones:CONECTA_A*1..5]-(destino:PuntoEntrega {id: 'P3'})
+WHERE ALL(tramo IN conexiones WHERE tramo.capacidad_maxima >= 15)
+RETURN ruta LIMIT 1;",12,,false
+Tabla consulta 4,,"//Algoritmo Dijkstra basado en tráfico
+MATCH (origen:Almacen {id: 'A1'}), (destino:PuntoEntrega {id: 'P2'})
+CALL gds.shortestPath.dijkstra.stream('grafo_logistica', {
+    sourceNode: origen,
+    targetNode: destino,
+    relationshipWeightProperty: 'costo_trafico'
+})
+YIELD totalCost, nodeIds
+RETURN origen.nombre AS Salida,
+       destino.nombre AS Llegada,
+       totalCost AS Costo_Tiempo_Trafico,
+       [n IN nodeIds | gds.util.asNode(n).nombre] AS Trayecto_Sugerido;",13,,false
+Visual consulta 4,,"MATCH (origen:Almacen {id: 'A1'}), (destino:PuntoEntrega {id: 'P2'})
+CALL gds.shortestPath.dijkstra.stream('grafo_logistica', {
+    sourceNode: origen,
+    targetNode: destino,
+    relationshipWeightProperty: 'costo_trafico'
+})
+YIELD path
+RETURN path;",14,,false
+tabla Consulta 5,,"// Resumen operativo usando subconsultas
+MATCH (a:Almacen)
+CALL (a) {
+    MATCH (v:Vehiculo)-[:UBICADO_EN]->(a)
+    RETURN count(v) AS total_vehiculos, sum(v.capacidad_toneladas) AS capacidad_flota
+}
+RETURN a.nombre AS Centro_Logistico, total_vehiculos AS Vehiculos_Disponibles, capacidad_flota AS Toneladas_Totales;",15,,false
+Error tabla consulta 5,,"// Resumen operativo usando subconsultas
+MATCH (a:Almacen)
+CALL {
+    WITH a
+    MATCH (v:Vehiculo)-[:UBICADO_EN]->(a)
+    RETURN count(v) AS total_vehiculos, sum(v.capacidad_toneladas) AS capacidad_flota
+}
+RETURN a.nombre AS Centro_Logistico, total_vehiculos AS Vehiculos_Disponibles, capacidad_flota AS Toneladas_Totales;",16,,false
+Visual consulta 5,,"MATCH (a:Almacen)
+CALL (a) {
+    MATCH (v:Vehiculo)-[r:UBICADO_EN]->(a)
+    RETURN v, r
+}
+RETURN a, v, r;",17,,false
