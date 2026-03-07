@@ -1,3 +1,6 @@
+//Este archivo fueron todas las consultas que utilicé para el proyecto en la base de datos por si les da algún error pidanle a gemini que les explique este archivo y ya
+
+
 name,description,query,id,parentId,isFolder
 Tabla costo calculado,,"MATCH ()-[r:CONECTA_A]->()
 SET r.costo_trafico = r.distancia * r.estado_trafico

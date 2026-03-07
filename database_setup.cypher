@@ -57,10 +57,22 @@ CREATE (i1)-[:CONECTA_A {distancia_km: 8, costo_trafico: 15, capacidad_maxima: 2
 MATCH (i1:Interseccion {id: 'I1'}), (p2:PuntoEntrega {id: 'P2'})
 CREATE (i1)-[:CONECTA_A {distancia_km: 12, costo_trafico: 25, capacidad_maxima: 25}]->(p2);
 
+MATCH (i1:Interseccion {id: 'I1'}), (i2:Interseccion {id: 'I2'})
+CREATE (i1)-[:CONECTA_A {distancia_km: 4, costo_trafico: 8, capacidad_maxima: 40}]->(i2);
+
+MATCH (i2:Interseccion {id: 'I2'}), (p3:PuntoEntrega {id: 'P3'})
+CREATE (i2)-[:CONECTA_A {distancia_km: 7, costo_trafico: 12, capacidad_maxima: 20}]->(p3);
+
 // 7. PROYECCIÓN DEL GRAFO
+CALL gds.graph.drop('grafo_logistica', false);
+
 CALL gds.graph.project(
   'grafo_logistica',
   ['Almacen', 'PuntoEntrega', 'Interseccion'],
-  'CONECTA_A',
-  { relationshipProperties: ['distancia_km', 'costo_trafico', 'capacidad_maxima'] }
+  {
+    CONECTA_A: {
+      orientation: 'UNDIRECTED',
+      properties: ['distancia_km', 'costo_trafico', 'capacidad_maxima']
+    }
+  }
 );
